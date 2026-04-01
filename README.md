@@ -1,360 +1,539 @@
-# NanoClip
+# NanoClip — Android / Termux Setup Guide
 
-**Open-source AI agent orchestration platform.**  
-Run teams of AI agents that respond to issues, chat in threads, and work autonomously — all from a **single binary** on any machine, including Android phones running Termux.
-
----
-
-## What it does
-
-NanoClip lets you create AI agents backed by local or cloud models and assign them to issues in projects. Agents:
-
-- **Respond to user comments** on issues, maintaining full conversation history
-- **Stream live output** so you can watch progress in real time
-- **Record activity** — every run, message, and cost event is logged
-- **Create sub-issues** when they break work down further after a run
-- **Run on a schedule** via Routines (cron-style triggers)
-
-All state is stored in a single SQLite file (default) or MariaDB (recommended for production). The whole platform ships as one Go binary that also serves the React UI.
+> **Who this guide is for:** Anyone who wants to run NanoClip on an Android phone using Termux — even if you have never used a terminal or typed a command before.  
+> Every step is explained in plain language. Take it slow, copy each command exactly as shown, and you will have NanoClip running on your phone.
 
 ---
 
-## Adapter types
+## What is NanoClip?
 
-Only three adapter types are supported — by design, to keep the surface area small:
-
-| Type | Description |
-|------|-------------|
-| `ollama_local` | Runs against a local [Ollama](https://ollama.com) instance. Point it at `http://localhost:11434` or any remote URL. |
-| `openrouter_local` | Routes through [OpenRouter](https://openrouter.ai) — access 100+ models with one API key. |
-| `http` | Calls any HTTP webhook endpoint. Bring your own agent runner. |
+NanoClip is an AI agent platform that runs entirely on your Android phone. You create AI agents, assign them to tasks (called *issues*), and they respond, track progress, and work automatically — all without a cloud subscription. Everything runs locally on your device.
 
 ---
 
-## Architecture
+## Before you start — check your Android version
+
+This guide works on **Android 7 or newer**. Older Androids (5 or 6) may work but some steps may fail. If your phone is very old (2013 or earlier), the build step will take a long time — plug it in and be patient.
+
+**Minimum requirements:**
+- Android 7.0 (Nougat) or newer
+- At least **2 GB free storage** (the build tools take a lot of space)
+- A working internet connection for the first install
+
+---
+
+## Part 1 — Install Termux
+
+Termux is a free terminal app for Android. **Do NOT install it from the Google Play Store** — that version is old and broken. Use F-Droid instead.
+
+### Step 1 — Install F-Droid
+
+1. Open your phone's browser (Chrome, Firefox, etc.)
+2. Go to: **https://f-droid.org**
+3. Tap the big **"Download F-Droid"** button
+4. When the download finishes, tap the notification or open your Downloads folder and tap the file
+5. If your phone asks *"Allow install from unknown sources"*, tap **Settings**, then turn on **"Allow from this source"**, then go back and tap **Install**
+6. After it installs, tap **Open**
+
+> **What is F-Droid?** It is a free app store for open-source apps. It is safe and trusted by millions of people worldwide.
+
+---
+
+### Step 2 — Install Termux from F-Droid
+
+1. Open the **F-Droid** app you just installed
+2. Tap the search icon (magnifying glass) at the bottom
+3. Type: `Termux`
+4. Tap the result that says **"Termux"** (it has an icon that looks like a black terminal window)
+5. Tap **Install**
+6. Wait for it to download and install — this may take a minute
+7. Tap **Open** when done
+
+> You now have Termux installed. It will show you a black screen with some text — that is completely normal. That is your terminal.
+
+---
+
+### Step 3 — Give Termux storage permission
+
+NanoClip needs to read and write files. Do this once:
+
+1. In Termux, type the following and press **Enter**:
+   ```
+   termux-setup-storage
+   ```
+2. A popup will appear asking for **"Storage"** permission — tap **Allow**
+
+> If nothing happens or no popup appears, go to **Android Settings → Apps → Termux → Permissions → Storage → Allow**.
+
+---
+
+## Part 2 — Install the required tools
+
+You need to install several programs inside Termux before NanoClip can run. These commands download and install everything automatically.
+
+### Step 4 — Update Termux's package list
+
+Copy and paste this command into Termux, then press **Enter**:
 
 ```
-nanoclip/
-├── go-server/          # Go backend (Gin + GORM + SQLite/MariaDB)
-│   ├── handlers/       # REST API route handlers
-│   ├── models/         # GORM models (agents, issues, runs, inbox, …)
-│   ├── services/       # Heartbeat loop — agent run scheduler
-│   ├── ws/             # WebSocket hub for live events
-│   ├── middleware/      # Auth (session cookie + agent JWT)
-│   └── scripts/        # Dev, build, and Termux scripts
-└── ui/                 # React + Vite + Tailwind frontend
-    └── src/
-        ├── adapters/   # Per-adapter UI config forms
-        ├── api/        # Typed API client
-        ├── components/ # Shared UI components
-        └── pages/      # Route pages
+pkg update -y && pkg upgrade -y
 ```
 
-The frontend is embedded into the Go binary at build time — no separate web server needed in production.
+> This updates Termux itself. It may ask you questions — just press **Enter** to accept defaults. This step can take 3–10 minutes depending on your internet speed. Wait until you see the `$` symbol again before continuing.
 
 ---
 
-## Quickstart (Desktop / Server)
+### Step 5 — Install Go, Node.js, MariaDB, and Git
 
-### Prerequisites
+Type this command and press **Enter**:
 
-- Go 1.21+
-- Node.js 20+ and pnpm
-
-### Development
-
-```bash
-# Install frontend dependencies
-pnpm install
-
-# Terminal 1: build and start the Go backend (port 8080)
-bash go-server/scripts/run-dev.sh
-
-# Terminal 2: start the Vite dev server (port 5000, proxies /api → :8080)
-pnpm --filter @nanoclip/ui dev
 ```
-
-Open `http://localhost:5000`.
-
-### Production build
-
-```bash
-# 1. Build the React frontend
-pnpm --filter @nanoclip/ui build
-
-# 2. Build the Go binary (embeds ui/dist/ automatically)
-cd go-server && go build -o nanoclip .
-
-# 3. Run
-./nanoclip
-```
-
-The binary listens on port `8080` by default. Set `GO_PORT` to override.
-
----
-
-## Termux Setup (Android ARM64)
-
-This section walks through running NanoClip entirely on an Android device using [Termux](https://termux.dev).
-
-### 1. Install Termux
-
-Download **Termux** from [F-Droid](https://f-droid.org/packages/com.termux/) (recommended — the Play Store version is outdated).
-
-### 2. Install packages
-
-Open Termux and run:
-
-```bash
-pkg update && pkg upgrade -y
 pkg install -y golang nodejs-lts mariadb git
 ```
 
-> **Note:** `nodejs-lts` provides Node.js. If it's not available, try `pkg install nodejs`.
+> **What is each tool?**
+> - **golang** — the programming language NanoClip's server is written in
+> - **nodejs-lts** — needed to build the web interface
+> - **mariadb** — the database that stores all your data (recommended for phones)
+> - **git** — downloads NanoClip's source code from the internet
+>
+> This will download and install everything. It will take **5–15 minutes** on a slow connection. Your phone's screen may turn off — that is fine, the install continues in the background.
 
-Install pnpm:
+---
 
-```bash
+### Step 6 — Install pnpm (the package manager for the web interface)
+
+```
 npm install -g pnpm
 ```
 
-### 3. Clone NanoClip
-
-```bash
-git clone https://github.com/artistrydat/Nanoclip.git
-cd Nanoclip
-```
-
-### 4. Set up MariaDB
-
-MariaDB is recommended on Termux because SQLite may have file-locking issues on some Android kernels.
-
-Initialize and start MariaDB:
-
-```bash
-bash go-server/scripts/setup-mariadb.sh
-```
-
-This script will:
-- Initialize the MariaDB data directory at `~/.nanoclip/mariadb/`
-- Start the MariaDB daemon in the background
-- Create the `nanoclip` database, user `nanoclip`, and password `nanoclip`
-- Print the `MARIADB_DSN` value to paste into your `.env`
-
-You should see output ending with:
-
-```
-Add to your .env:
-  MARIADB_DSN=nanoclip:nanoclip@tcp(127.0.0.1:3306)/nanoclip?charset=utf8mb4&parseTime=True&loc=UTC
-```
-
-### 5. Create a `.env` file
-
-In the project root, create `.env`:
-
-```bash
-cat > .env <<'EOF'
-MARIADB_DSN=nanoclip:nanoclip@tcp(127.0.0.1:3306)/nanoclip?charset=utf8mb4&parseTime=True&loc=UTC
-JWT_SECRET=change-me-to-a-random-string
-LOCAL_TRUSTED=true
-GO_PORT=8080
-EOF
-```
-
-> Set `LOCAL_TRUSTED=true` to skip login entirely — recommended for personal use on your phone.  
-> Replace `JWT_SECRET` with any random string (e.g., output of `openssl rand -hex 32`).
-
-### 6. Build the UI
-
-```bash
-pnpm install
-pnpm --filter @nanoclip/ui build
-```
-
-> This step can take several minutes on a phone. Run it once; the built files are embedded into the binary.
-
-### 7. Build and run NanoClip
-
-```bash
-cd go-server
-go build -o nanoclip .
-./nanoclip
-```
-
-Or, to start MariaDB automatically along with the server:
-
-```bash
-bash go-server/scripts/start.sh
-```
-
-Open your phone's browser and navigate to `http://localhost:8080`.
-
-### 8. Keep it running (optional)
-
-To keep NanoClip alive when you exit Termux, use `nohup`:
-
-```bash
-nohup bash go-server/scripts/start.sh &> ~/nanoclip.log &
-```
-
-Or install [Termux:Boot](https://f-droid.org/packages/com.termux.boot/) (from F-Droid) and create a start script:
-
-```bash
-mkdir -p ~/.termux/boot
-cat > ~/.termux/boot/nanoclip.sh <<'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-cd ~/Nanoclip
-bash go-server/scripts/start.sh &>> ~/nanoclip.log
-EOF
-chmod +x ~/.termux/boot/nanoclip.sh
-```
+> This installs `pnpm`, a tool that downloads the web interface's dependencies. Wait for the `$` symbol before continuing.
 
 ---
 
-## MariaDB Setup (Manual)
+## Part 3 — Download NanoClip
 
-If you prefer to configure MariaDB yourself instead of using the setup script:
+### Step 7 — Download the NanoClip source code
 
-### Step 1 — Install MariaDB
-
-**Termux:**
-```bash
-pkg install mariadb
+```
+git clone https://github.com/artistrydat/nanoclip-v2.git
 ```
 
-**Ubuntu/Debian:**
-```bash
-sudo apt install mariadb-server
-sudo systemctl start mariadb
+> This downloads NanoClip from GitHub to your phone. You will see lines of text scrolling — that is normal. When it finishes, you will see `$` again.
+
+### Step 8 — Enter the NanoClip folder
+
+```
+cd nanoclip-v2
 ```
 
-**macOS (Homebrew):**
-```bash
-brew install mariadb
-brew services start mariadb
+> `cd` means "change directory" — it moves you into the NanoClip folder. You must run all future commands from inside this folder.
+
+---
+
+## Part 4 — Set up the database (MariaDB)
+
+This is the most important step. MariaDB is the database that stores everything: your agents, issues, conversations, and settings. On Android, MariaDB works better than SQLite (the default), especially on older devices.
+
+### Step 9 — Initialize MariaDB (first time only)
+
+This sets up the database storage on your phone. Type:
+
+```
+mysql_install_db
 ```
 
-### Step 2 — Create database and user
+> This creates the database files in Termux's home directory. You will see several lines of text. Wait for `$` to appear.
+>
+> **If you see an error like "already exists"** — that means MariaDB was already initialized. Skip to Step 10.
 
-Connect to MariaDB as root:
+---
 
-```bash
-# Termux (no root password by default):
-mariadb -u root
+### Step 10 — Start the MariaDB database server
 
-# Linux with sudo:
-sudo mariadb -u root
+```
+mysqld_safe --datadir="$PREFIX/var/lib/mysql" &
 ```
 
-Run these SQL commands:
+> The `&` at the end means "run in the background". You will see some startup messages, then the `$` prompt returns. MariaDB is now running.
+>
+> **Wait about 5 seconds** before continuing — the database needs a moment to fully start.
+>
+> **On very old Android phones (Android 7 or earlier):** if you get an error about `--skip-mysqlx`, use this command instead:
+> ```
+> mysqld --user=$(whoami) --datadir="$PREFIX/var/lib/mysql" --skip-grant-tables &
+> ```
+> Then press **Enter** once more to get the `$` prompt back.
+
+---
+
+### Step 11 — Open the database console
+
+```
+mysql -u root
+```
+
+> This opens the MariaDB command prompt. You will see `MariaDB [(none)]>` — this means you are now inside the database. Do not close Termux.
+>
+> **If you see "Access denied"**, try:
+> ```
+> mysql -u root --skip-password
+> ```
+
+---
+
+### Step 12 — Create the NanoClip database and user
+
+You are now inside the database console (you see `MariaDB [(none)]>`). Copy and paste **each line below one at a time**, pressing **Enter** after each one:
 
 ```sql
-CREATE DATABASE IF NOT EXISTS `nanoclip`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS nanoclip CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
 
-CREATE USER IF NOT EXISTS 'nanoclip'@'localhost' IDENTIFIED BY 'your-password';
-CREATE USER IF NOT EXISTS 'nanoclip'@'127.0.0.1' IDENTIFIED BY 'your-password';
+Press Enter, wait for `Query OK`, then:
 
-GRANT ALL PRIVILEGES ON `nanoclip`.* TO 'nanoclip'@'localhost';
-GRANT ALL PRIVILEGES ON `nanoclip`.* TO 'nanoclip'@'127.0.0.1';
+```sql
+CREATE USER IF NOT EXISTS 'nanoclip'@'localhost' IDENTIFIED BY 'nanoclip123';
+```
 
+Press Enter, wait for `Query OK`, then:
+
+```sql
+CREATE USER IF NOT EXISTS 'nanoclip'@'127.0.0.1' IDENTIFIED BY 'nanoclip123';
+```
+
+Press Enter, wait for `Query OK`, then:
+
+```sql
+GRANT ALL PRIVILEGES ON nanoclip.* TO 'nanoclip'@'localhost';
+```
+
+Press Enter, wait for `Query OK`, then:
+
+```sql
+GRANT ALL PRIVILEGES ON nanoclip.* TO 'nanoclip'@'127.0.0.1';
+```
+
+Press Enter, wait for `Query OK`, then:
+
+```sql
 FLUSH PRIVILEGES;
+```
+
+Press Enter, wait for `Query OK`, then type:
+
+```sql
 EXIT;
 ```
 
-### Step 3 — Connect NanoClip to MariaDB
+Press Enter to leave the database console. You should be back at the regular `$` prompt.
 
-Set the `MARIADB_DSN` environment variable (or add it to `.env` in the project root):
-
-```
-MARIADB_DSN=nanoclip:your-password@tcp(127.0.0.1:3306)/nanoclip?charset=utf8mb4&parseTime=True&loc=UTC
-```
-
-NanoClip uses GORM and will **auto-migrate all tables** on first start — no manual schema creation needed.
-
-### Step 4 — Verify the connection
-
-Start NanoClip and look for this line in the logs:
-
-```
-[db] connecting to MariaDB...
-[db] migrations applied
-```
-
-If you see `[db] using SQLite`, the `MARIADB_DSN` variable was not picked up — check your `.env` file path and syntax.
+> **What did we just do?**  
+> We created a database called `nanoclip` and a user called `nanoclip` with the password `nanoclip123`. NanoClip will use these to store all its data.
+>
+> **You can change `nanoclip123` to any password you like** — just remember it for Step 14.
 
 ---
 
-## Configuration reference
+### Step 13 — Test that the database works
 
-All configuration is via environment variables (or a `.env` file in the project root):
+Make sure you can connect with the new user:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `GO_PORT` | `8080` | HTTP port the server listens on |
-| `MARIADB_DSN` | *(unset)* | MariaDB connection string. If unset, SQLite is used. |
-| `NANOCLIP_DATA_DIR` | `~/.nanoclip/` | Directory for SQLite database file |
-| `JWT_SECRET` | auto-generated | Secret for agent JWT tokens. Set explicitly in production. |
-| `LOCAL_TRUSTED` | `false` | Set to `true` to skip auth entirely (single-user / local mode) |
-
-### Local trusted mode
-
-Set `LOCAL_TRUSTED=true` to run without authentication. A `local-system-user` account with `instance_admin` role is created automatically. Ideal for running on a personal machine or phone where you are the only user.
-
----
-
-## Cross-compiling for Termux (from another machine)
-
-If you want to build the ARM64 binary on a faster machine and copy it to your phone:
-
-```bash
-bash go-server/scripts/build-termux.sh
+```
+mysql -u nanoclip -pnanoclip123 nanoclip
 ```
 
-This produces `go-server/nanoclip-arm64`. Copy it to your phone:
+> If you see `MariaDB [nanoclip]>`, everything worked. Type `EXIT;` and press **Enter** to go back to the `$` prompt.
+>
+> **If you see "Access denied"** — double-check that you typed the commands in Step 12 exactly as shown, including the semicolons (`;`) at the end of each line.
 
-```bash
-adb push go-server/nanoclip-arm64 /sdcard/nanoclip
-# Then in Termux:
-cp /sdcard/nanoclip ~/nanoclip
-chmod +x ~/nanoclip
+---
+
+## Part 5 — Configure NanoClip
+
+### Step 14 — Create the settings file
+
+NanoClip reads its settings from a file called `.env`. Create it now:
+
+```
+cat > .env << 'ENVEOF'
+MARIADB_DSN=nanoclip:nanoclip123@tcp(127.0.0.1:3306)/nanoclip?charset=utf8mb4&parseTime=True&loc=UTC
+JWT_SECRET=my-secret-key-change-this-please
+GO_PORT=8080
+ENVEOF
+```
+
+> **Important:** If you changed the password in Step 12, replace `nanoclip123` in the command above with your chosen password.
+>
+> **What does each line mean?**
+> - `MARIADB_DSN` — tells NanoClip how to connect to MariaDB (the database address, user name, and password)
+> - `JWT_SECRET` — a secret key used for security. Change `my-secret-key-change-this-please` to any random words you like (e.g., `purple-elephant-runs-fast-2024`)
+> - `GO_PORT` — the port (address number) your phone's browser will use to open NanoClip
+
+---
+
+## Part 6 — Build NanoClip
+
+This step compiles NanoClip from source code into a program your phone can run. **This will take time** — 10 to 30 minutes on a phone. Plug your phone in before starting.
+
+### Step 15 — Download the web interface files
+
+```
+pnpm install
+```
+
+> This downloads all the pieces needed to build the web interface. You will see a lot of text. Wait for `$` to return. This may take 5–10 minutes.
+
+---
+
+### Step 16 — Build the web interface
+
+```
+pnpm --filter @nanoclip/ui build
+```
+
+> This compiles the web interface into files the server can serve. You will see lines starting with `vite v...` and then a summary showing file sizes. When it says `✓ built in X.Xs`, it is done.
+>
+> **If you see an error about memory** on an old phone, try:
+> ```
+> NODE_OPTIONS="--max-old-space-size=512" pnpm --filter @nanoclip/ui build
+> ```
+
+---
+
+### Step 17 — Build the NanoClip server
+
+```
+cd go-server && go build -o nanoclip . && cd ..
+```
+
+> This compiles the server. You will see nothing for several minutes — that is normal. When the `$` appears again, it is finished. The binary (`nanoclip`) is now inside the `go-server` folder.
+>
+> **On very old phones with limited RAM:** if the build fails with a memory error, try closing all other apps and running the command again.
+
+---
+
+## Part 7 — Run NanoClip
+
+### Step 18 — Start the database (every time you restart Termux)
+
+Every time you open a fresh Termux session, you need to start MariaDB first:
+
+```
+mysqld_safe --datadir="$PREFIX/var/lib/mysql" &
+```
+
+Wait 5 seconds, then press **Enter** once more.
+
+---
+
+### Step 19 — Start NanoClip
+
+```
+./go-server/nanoclip
+```
+
+> You will see startup messages like:
+> ```
+> [db] connecting to MariaDB...
+> [db] migrations applied
+> [server] NanoClip listening on 0.0.0.0:8080
+> ```
+> When you see **"NanoClip listening"**, the server is ready.
+
+---
+
+### Step 20 — Open NanoClip in your browser
+
+1. Open any browser on your phone (Chrome, Firefox, Brave, etc.)
+2. In the address bar, type exactly:
+   ```
+   http://localhost:8080
+   ```
+3. Press **Go** or **Enter**
+
+You should see the NanoClip login screen. **Sign up** with any email and password — they are stored only on your phone.
+
+---
+
+## Part 8 — Keep NanoClip running in the background
+
+By default, NanoClip stops when you close Termux. Here is how to keep it running.
+
+### Option A — Keep Termux open (simplest)
+
+Swipe down from the top of your screen and pull the Termux notification to keep it running. On most Androids, going to **Battery Settings → Termux → Don't optimize** prevents the OS from killing it.
+
+---
+
+### Option B — Run in background with nohup
+
+Instead of Step 19, use this command to run NanoClip detached from the terminal:
+
+```
+nohup bash -c 'mysqld_safe --datadir="$PREFIX/var/lib/mysql"; sleep 5; ./go-server/nanoclip' > ~/nanoclip.log 2>&1 &
+```
+
+> NanoClip will now run in the background. To check if it is running:
+> ```
+> cat ~/nanoclip.log
+> ```
+>
+> To stop it:
+> ```
+> pkill mysqld; pkill nanoclip
+> ```
+
+---
+
+### Option C — Auto-start when your phone boots (advanced)
+
+Install **Termux:Boot** from F-Droid (search for "Termux:Boot"). Then create an auto-start script:
+
+```
+mkdir -p ~/.termux/boot
+cat > ~/.termux/boot/start-nanoclip.sh << 'BOOTEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+cd ~/nanoclip-v2
+mysqld_safe --datadir="$PREFIX/var/lib/mysql" &
+sleep 8
+./go-server/nanoclip >> ~/nanoclip.log 2>&1
+BOOTEOF
+chmod +x ~/.termux/boot/start-nanoclip.sh
+```
+
+> After this, NanoClip will start automatically every time you reboot your phone.
+
+---
+
+## Quick reference — commands to know
+
+| What you want to do | Command |
+|---|---|
+| Start the database | `mysqld_safe --datadir="$PREFIX/var/lib/mysql" &` |
+| Start NanoClip | `./go-server/nanoclip` |
+| Stop everything | `pkill mysqld; pkill nanoclip` |
+| View live log | `tail -f ~/nanoclip.log` |
+| Go into NanoClip folder | `cd ~/nanoclip-v2` |
+| Open NanoClip in browser | Go to `http://localhost:8080` |
+
+---
+
+## Troubleshooting
+
+### "command not found: go" or "command not found: mysql"
+
+The packages did not install correctly. Run Step 5 again:
+```
+pkg install -y golang nodejs-lts mariadb git
 ```
 
 ---
 
-## API overview
+### "Can't connect to local MySQL server"
 
-The REST API is served under `/api/`. Key route groups:
-
-- **`/api/auth`** — sign up, sign in, sign out, get session
-- **`/api/companies/:id`** — agents, issues, projects, routines, costs, members, skills, secrets, inbox, approvals, dashboard
-- **`/api/agents/:id`** — agent detail, permissions, runtime state, config revisions, skills
-- **`/api/issues/:id`** — comments, activity, sub-issues, runs, attachments, mark read/unread
-- **`/api/heartbeat-runs/:id`** — run events, log stream, cancel
-- **`/api/instance`** — instance-level settings and user management
-
-**WebSocket:** `/api/companies/:id/events/ws` — streams live run events, agent status changes, sub-issue creation, and inbox updates.
+MariaDB is not running. Start it (Step 18):
+```
+mysqld_safe --datadir="$PREFIX/var/lib/mysql" &
+```
 
 ---
 
-## Inbox & badge
+### "Access denied for user 'nanoclip'"
 
-Every agent comment on an issue creates an `InboxItem`. The sidebar badge shows only **unread** items. Marking an issue read sets it to `read`; archiving sets it to `archived`. The badge clears immediately on read.
+The password in `.env` does not match what you set in Step 12. Open `.env`:
+```
+nano .env
+```
+Check that `nanoclip123` (or your chosen password) matches what you used in Step 12. Press **Ctrl+X** to close nano.
 
 ---
 
-## Contributing
+### The build fails with "signal: killed" or "out of memory"
 
-1. Fork the repo
-2. Create a feature branch: `git checkout -b my-feature`
-3. Make your changes and verify: `go vet ./...` and `pnpm --filter @nanoclip/ui build`
-4. Open a pull request
+Your phone ran out of memory during the build. Try:
 
-Bug reports and feature requests welcome via [GitHub Issues](https://github.com/artistrydat/Nanoclip/issues).
+1. Close all other apps
+2. Rerun the build command
+3. If it keeps failing, try building with less memory usage:
+   ```
+   GOFLAGS="-p=1" go build -o nanoclip .
+   ```
+   (Run this from inside the `go-server` folder)
+
+---
+
+### Page does not load in browser
+
+- Make sure you typed `http://localhost:8080` (not `https://`)
+- Make sure NanoClip is running (you should see the "NanoClip listening" message in Termux)
+- Try `http://127.0.0.1:8080` instead
+
+---
+
+### MariaDB takes a long time to start on old Android
+
+This is normal on devices with Android 7 or older and slow storage. Wait **15–20 seconds** after starting MariaDB before starting NanoClip.
+
+---
+
+### "Plugin not found" or pnpm errors during build
+
+Run these commands to clear the cache and retry:
+```
+pnpm store prune
+pnpm install --force
+pnpm --filter @nanoclip/ui build
+```
+
+---
+
+## Configuration options
+
+All settings go in the `.env` file in the `nanoclip-v2` folder. Edit with:
+
+```
+nano .env
+```
+
+| Setting | What it does | Default |
+|---|---|---|
+| `MARIADB_DSN` | Database connection string | (required for MariaDB) |
+| `GO_PORT` | Port for the web interface | `8080` |
+| `JWT_SECRET` | Security key — set to any random phrase | auto-generated |
+| `NANOCLIP_DATA_DIR` | Where SQLite database is stored (if not using MariaDB) | `~/.nanoclip/` |
+
+After editing `.env`, restart NanoClip (stop it with **Ctrl+C** and run Step 19 again).
+
+---
+
+## How to update NanoClip later
+
+When a new version is released, update like this:
+
+```
+cd ~/nanoclip-v2
+git pull
+pnpm install
+pnpm --filter @nanoclip/ui build
+cd go-server && go build -o nanoclip . && cd ..
+```
+
+Then restart the server (Ctrl+C to stop, then run `./go-server/nanoclip` again).
+
+---
+
+## Need help?
+
+Open an issue at: **https://github.com/artistrydat/nanoclip-v2/issues**
+
+Please include:
+- Your Android version (Settings → About phone → Android version)
+- The exact error message you see
+- Which step you are on
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — free to use, modify, and distribute.
