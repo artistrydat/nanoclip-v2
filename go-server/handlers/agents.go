@@ -153,7 +153,15 @@ func updateAgent(db *gorm.DB) gin.HandlerFunc {
                         updates["adapter_type"] = *req.AdapterType
                 }
                 if req.AdapterConfig != nil {
-                        updates["adapter_config"] = req.AdapterConfig
+                        // Merge into existing config — preserve fields not touched by this update
+                        merged := models.JSON{}
+                        for k, v := range agent.AdapterConfig {
+                                merged[k] = v
+                        }
+                        for k, v := range req.AdapterConfig {
+                                merged[k] = v
+                        }
+                        updates["adapter_config"] = merged
                 }
                 if req.BudgetMonthlyCents != nil {
                         updates["budget_monthly_cents"] = *req.BudgetMonthlyCents

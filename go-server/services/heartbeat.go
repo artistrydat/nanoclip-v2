@@ -498,7 +498,12 @@ func (s *HeartbeatService) runOpenRouterAgent(agent models.Agent, issue *models.
                 apiKey = os.Getenv("OPENROUTER_API_KEY")
         }
         if apiKey == "" {
-                s.finishRun(run, nil, "OpenRouter API key not set (set OPENROUTER_API_KEY or adapterConfig.apiKey)", "missing_api_key", issue)
+                keys := make([]string, 0, len(cfg))
+                for k := range cfg {
+                        keys = append(keys, k)
+                }
+                log.Printf("[openrouter] agent=%s: apiKey missing. adapterConfig keys present: %v", agent.ID, keys)
+                s.finishRun(run, nil, "OpenRouter API key not set — open the agent settings and add your API key in the 'API key' field, then retry", "missing_api_key", issue)
                 return
         }
 

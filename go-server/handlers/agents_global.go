@@ -8,6 +8,7 @@ import (
         "time"
 
         "github.com/gin-gonic/gin"
+        "github.com/google/uuid"
         "gorm.io/gorm"
         "paperclip-go/models"
         mw "paperclip-go/middleware"
@@ -27,6 +28,7 @@ func GlobalAgentRoutes(rg *gin.RouterGroup, db *gorm.DB) {
         rg.GET("/:agentId/config-revisions", getAgentConfigRevisions(db))
         rg.POST("/:agentId/pause", pauseGlobalAgent(db))
         rg.POST("/:agentId/resume", resumeGlobalAgent(db))
+        rg.POST("/:agentId/wakeup", wakeupGlobalAgent(db))
         rg.PATCH("/:agentId/permissions", updateAgentPermissions(db))
         // Instructions bundle
         rg.GET("/:agentId/instructions-bundle", GetInstructionsBundle(db))
@@ -146,7 +148,16 @@ func updateGlobalAgent(db *gorm.DB) gin.HandlerFunc {
                         updates["adapter_type"] = *req.AdapterType
                 }
                 if req.AdapterConfig != nil {
-                        updates["adapter_config"] = req.AdapterConfig
+                        // Merge incoming fields into existing config so a partial update
+                        // (e.g. updating only apiKey) does not wipe model/baseUrl/etc.
+                        merged := models.JSON{}
+                        for k, v := range agent.AdapterConfig {
+                                merged[k] = v
+                        }
+                        for k, v := range req.AdapterConfig {
+                                merged[k] = v
+                        }
+                        updates["adapter_config"] = merged
                 }
                 if req.RuntimeConfig != nil {
                         updates["runtime_config"] = req.RuntimeConfig
@@ -382,6 +393,31 @@ func resumeGlobalAgent(db *gorm.DB) gin.HandlerFunc {
                 })
                 db.First(agent, "id = ?", agent.ID)
                 c.JSON(http.StatusOK, agent)
+        }
+}
+
+// wakeupGlobalAgent handles POST /api/agents/:agentId/wakeup
+// Creates a wakeup request that the heartbeat service will pick up on its next tick.
+func wakeupGlobalAgent(db *gorm.DB) gin.HandlerFunc {
+        return func(c *gin.Context) {
+                agent, status, err := resolveAgentByParam(db, c.Param("agentId"), c.Query("companyId"))
+                if err != nil {
+                        c.JSON(status, gin.H{"error": err.Error()})
+                        return
+                }
+                var req struct {
+                        Reason *string `json:"reason"`
+                }
+                c.ShouldBindJSON(&req)
+                wakeup := models.AgentWakeupRequest{
+                        ID:        uuid.NewString(),
+                        AgentID:   agent.ID,
+                        CompanyID: agent.CompanyID,
+                        Reason:    req.Reason,
+                        CreatedAt: time.Now(),
+                }
+                db.Create(&wakeup)
+                c.JSON(http.StatusOK, wakeup)
         }
 }
 
