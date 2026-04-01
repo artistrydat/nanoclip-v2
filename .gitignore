@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.env
+.vite/
+coverage/
+.DS_Store
+data/
+.pnpm-store/
+tmp-*
+*.tmp
+.vscode/
+/.idea/
+/.agents/
+
+# Go build artifacts
+go-server/paperclip-go
+go-server/paperclip-go-arm64
+
+# SQLite database
+*.db
+*.db-shm
+*.db-wal
