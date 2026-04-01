@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:termux": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
