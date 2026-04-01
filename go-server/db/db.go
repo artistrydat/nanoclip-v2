@@ -128,6 +128,7 @@ func AutoMigrate(db *gorm.DB) {
                 &models.InboxItem{},
                 // Plugins
                 &models.Plugin{},
+                &models.PluginLog{},
         )
         if err != nil {
                 log.Fatalf("[db] AutoMigrate failed: %v", err)

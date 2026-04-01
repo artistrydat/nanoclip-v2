@@ -30,11 +30,33 @@ type Client struct {
 }
 
 type Hub struct {
-        clients    map[*Client]bool
-        broadcast  chan []byte
-        register   chan *Client
-        unregister chan *Client
-        mu         sync.RWMutex
+        clients     map[*Client]bool
+        broadcast   chan []byte
+        register    chan *Client
+        unregister  chan *Client
+        mu          sync.RWMutex
+        subsMu      sync.RWMutex
+        subscribers []chan LiveEvent
+}
+
+func (h *Hub) Subscribe() chan LiveEvent {
+        ch := make(chan LiveEvent, 64)
+        h.subsMu.Lock()
+        h.subscribers = append(h.subscribers, ch)
+        h.subsMu.Unlock()
+        return ch
+}
+
+func (h *Hub) Unsubscribe(ch chan LiveEvent) {
+        h.subsMu.Lock()
+        defer h.subsMu.Unlock()
+        for i, sub := range h.subscribers {
+                if sub == ch {
+                        h.subscribers = append(h.subscribers[:i], h.subscribers[i+1:]...)
+                        close(ch)
+                        return
+                }
+        }
 }
 
 var GlobalHub = NewHub()
@@ -87,6 +109,14 @@ func (h *Hub) Publish(event LiveEvent) {
         case h.broadcast <- data:
         default:
         }
+        h.subsMu.RLock()
+        for _, ch := range h.subscribers {
+                select {
+                case ch <- event:
+                default:
+                }
+        }
+        h.subsMu.RUnlock()
 }
 
 func (c *Client) writePump() {

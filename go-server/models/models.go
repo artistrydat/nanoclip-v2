@@ -10,6 +10,42 @@ import (
 // JSON is a helper type for storing JSON in SQLite/MariaDB TEXT columns.
 type JSON map[string]interface{}
 
+// JSONAny stores any JSON value (object, array, primitive) as a raw byte blob.
+type JSONAny []byte
+
+func (j JSONAny) MarshalJSON() ([]byte, error) {
+        if j == nil {
+                return []byte("null"), nil
+        }
+        return j, nil
+}
+
+func (j *JSONAny) UnmarshalJSON(data []byte) error {
+        *j = append((*j)[:0], data...)
+        return nil
+}
+
+func (j JSONAny) Value() (driver.Value, error) {
+        if j == nil {
+                return nil, nil
+        }
+        return string(j), nil
+}
+
+func (j *JSONAny) Scan(value interface{}) error {
+        if value == nil {
+                *j = nil
+                return nil
+        }
+        switch v := value.(type) {
+        case string:
+                *j = []byte(v)
+        case []byte:
+                *j = append((*j)[:0], v...)
+        }
+        return nil
+}
+
 func (j JSON) Value() (driver.Value, error) {
         if j == nil {
                 return nil, nil
@@ -560,11 +596,27 @@ type InboxItem struct {
 
 type Plugin struct {
         ID              string      `gorm:"primaryKey;type:char(36)" json:"id"`
+        PackageName     string      `gorm:"type:varchar(255);uniqueIndex" json:"packageName"`
+        PluginKey       string      `gorm:"type:varchar(255);uniqueIndex" json:"pluginKey"`
         Name            string      `gorm:"not null;type:varchar(255)" json:"name"`
         Version         *string     `gorm:"type:varchar(64)" json:"version,omitempty"`
+        Status          string      `gorm:"type:varchar(32);default:'disabled'" json:"status"`
+        LastError       *string     `gorm:"type:text" json:"lastError,omitempty"`
         Enabled         bool        `gorm:"not null;default:true" json:"enabled"`
+        ManifestJSON    JSON        `gorm:"type:longtext" json:"manifestJson,omitempty"`
+        Categories      JSONAny     `gorm:"type:longtext" json:"categories,omitempty"`
         Config          JSON        `gorm:"type:longtext" json:"config,omitempty"`
         UIContributions JSON        `gorm:"type:longtext" json:"uiContributions,omitempty"`
         CreatedAt       time.Time   `json:"createdAt"`
         UpdatedAt       time.Time   `json:"updatedAt"`
+}
+
+// PluginLog stores log entries emitted by a plugin service.
+type PluginLog struct {
+        ID        string    `gorm:"primaryKey;type:char(36)" json:"id"`
+        PluginID  string    `gorm:"not null;type:char(36);index" json:"pluginId"`
+        Level     string    `gorm:"not null;type:varchar(16);default:'info'" json:"level"`
+        Message   string    `gorm:"not null;type:text" json:"message"`
+        Meta      JSON      `gorm:"type:longtext" json:"meta,omitempty"`
+        CreatedAt time.Time `gorm:"index" json:"createdAt"`
 }

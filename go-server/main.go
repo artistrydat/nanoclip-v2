@@ -34,6 +34,9 @@ func main() {
         hb := services.NewHeartbeatService(database, hub)
         go hb.Start()
 
+        tg := services.NewTelegramService(database, hub)
+        go tg.Start()
+
         if os.Getenv("GIN_MODE") == "" {
                 gin.SetMode(gin.ReleaseMode)
         }
@@ -147,11 +150,18 @@ func main() {
                 log.Printf("[server] serving UI from %s", uiDist)
                 router.StaticFS("/assets", http.Dir(filepath.Join(uiDist, "assets")))
                 router.StaticFile("/favicon.ico", filepath.Join(uiDist, "favicon.ico"))
+                router.StaticFile("/favicon.svg", filepath.Join(uiDist, "favicon.svg"))
+                router.StaticFile("/favicon-32x32.png", filepath.Join(uiDist, "favicon-32x32.png"))
+                router.StaticFile("/favicon-16x16.png", filepath.Join(uiDist, "favicon-16x16.png"))
+                router.StaticFile("/sw.js", filepath.Join(uiDist, "sw.js"))
                 router.NoRoute(func(c *gin.Context) {
                         if len(c.Request.URL.Path) > 4 && c.Request.URL.Path[:4] == "/api" {
                                 c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
                                 return
                         }
+                        c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        c.Header("Pragma", "no-cache")
+                        c.Header("Expires", "0")
                         c.File(filepath.Join(uiDist, "index.html"))
                 })
         } else {
