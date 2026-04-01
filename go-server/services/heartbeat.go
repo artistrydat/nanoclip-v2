@@ -160,7 +160,13 @@ func (s *HeartbeatService) runAgent(agent models.Agent, issue *models.Issue, sou
                 run.TriggerDetail = &detail
         }
         s.db.Create(&run)
+        s.dispatchRun(agent, issue, &run)
+}
 
+// dispatchRun transitions an already-created run to running state and executes the agent.
+// Called by both runAgent (scheduled) and TriggerRun (comment-triggered) to avoid creating
+// a second run record.
+func (s *HeartbeatService) dispatchRun(agent models.Agent, issue *models.Issue, run *models.HeartbeatRun) {
         s.hub.Publish(ws.LiveEvent{Type: "heartbeat_run.created", Payload: run})
 
         // Update agent status
@@ -169,19 +175,36 @@ func (s *HeartbeatService) runAgent(agent models.Agent, issue *models.Issue, sou
         s.hub.Publish(ws.LiveEvent{Type: "agent.updated", Payload: gin_H{"id": agent.ID, "status": "running"}})
 
         startedAt := time.Now()
-        s.db.Model(&run).Updates(map[string]interface{}{
+        s.db.Model(run).Updates(map[string]interface{}{
                 "status":     "running",
                 "started_at": startedAt,
                 "updated_at": startedAt,
         })
 
+        // Record run_started in issue activity
+        if issue != nil {
+                agentID := agent.ID
+                s.db.Create(&models.ActivityLog{
+                        ID:         uuid.NewString(),
+                        CompanyID:  run.CompanyID,
+                        ActorType:  "agent",
+                        ActorID:    agentID,
+                        Action:     "run_started",
+                        EntityType: "issue",
+                        EntityID:   issue.ID,
+                        AgentID:    &agentID,
+                        Details:    models.JSON{"runId": run.ID, "source": run.InvocationSource},
+                        CreatedAt:  time.Now(),
+                })
+        }
+
         switch agent.AdapterType {
         case "ollama_local":
-                s.runOllamaAgent(agent, issue, &run)
+                s.runOllamaAgent(agent, issue, run)
         case "openrouter_local":
-                s.runOpenRouterAgent(agent, issue, &run)
+                s.runOpenRouterAgent(agent, issue, run)
         default:
-                s.finishRun(&run, nil,
+                s.finishRun(run, nil,
                         fmt.Sprintf("unsupported adapter type: %s", agent.AdapterType),
                         "unsupported_adapter", issue)
         }
@@ -224,6 +247,23 @@ func (s *HeartbeatService) finishRun(run *models.HeartbeatRun, exitCode *int, er
                         "updated_at":          now,
                 })
                 s.hub.Publish(ws.LiveEvent{Type: "issue.updated", Payload: gin_H{"id": issue.ID, "status": issueStatus}})
+        }
+
+        // Log run_completed in issue activity
+        if issue != nil {
+                agentID := run.AgentID
+                s.db.Create(&models.ActivityLog{
+                        ID:         uuid.NewString(),
+                        CompanyID:  run.CompanyID,
+                        ActorType:  "agent",
+                        ActorID:    agentID,
+                        Action:     "run_completed",
+                        EntityType: "issue",
+                        EntityID:   issue.ID,
+                        AgentID:    &agentID,
+                        Details:    models.JSON{"runId": run.ID, "status": status},
+                        CreatedAt:  now,
+                })
         }
 
         // Reset agent status to idle
@@ -368,6 +408,11 @@ func (s *HeartbeatService) runOllamaAgent(agent models.Agent, issue *models.Issu
                         UpdatedAt:     time.Now(),
                 }
                 s.db.Create(&comment)
+        }
+
+        // Create a sub-issue recording this run result
+        if issue != nil && responseText != "" {
+                s.createRunResultSubIssue(agent, issue, run, responseText)
         }
 
         // Update stdout excerpt with a summary
@@ -576,11 +621,72 @@ func (s *HeartbeatService) runOpenRouterAgent(agent models.Agent, issue *models.
                 s.db.Create(&comment)
         }
 
+        // Create a sub-issue recording this run result
+        if issue != nil && responseText != "" {
+                s.createRunResultSubIssue(agent, issue, run, responseText)
+        }
+
         excerpt := truncate(responseText, maxExcerptBytes)
         s.db.Model(run).Update("stdout_excerpt", excerpt)
 
         exitCode := 0
         s.finishRun(run, &exitCode, "", "", issue)
+}
+
+// createRunResultSubIssue creates a child issue under the parent issue to record the agent's run result.
+func (s *HeartbeatService) createRunResultSubIssue(agent models.Agent, parent *models.Issue, run *models.HeartbeatRun, result string) {
+        var company models.Company
+        if err := s.db.First(&company, "id = ?", parent.CompanyID).Error; err != nil {
+                log.Printf("[heartbeat] createRunResultSubIssue: company not found: %v", err)
+                return
+        }
+        s.db.Model(&company).Update("issue_counter", gorm.Expr("issue_counter + 1"))
+        s.db.First(&company, "id = ?", parent.CompanyID)
+        issueNumber := company.IssueCounter
+        identifier := fmt.Sprintf("%s-%d", company.IssuePrefix, issueNumber)
+
+        // Build a short title from the first non-empty line of the response
+        title := result
+        if idx := strings.IndexAny(title, "\n\r"); idx > 0 {
+                title = title[:idx]
+        }
+        title = strings.TrimSpace(title)
+        if len(title) > 120 {
+                title = title[:120] + "…"
+        }
+        if title == "" {
+                title = fmt.Sprintf("Run result (%s)", run.ID[:8])
+        }
+
+        now := time.Now()
+        agentID := agent.ID
+        subIssue := models.Issue{
+                ID:               uuid.NewString(),
+                CompanyID:        parent.CompanyID,
+                ProjectID:        parent.ProjectID,
+                ParentID:         &parent.ID,
+                Title:            title,
+                Description:      &result,
+                Status:           "done",
+                Priority:         "medium",
+                AssigneeAgentID:  &agentID,
+                CreatedByAgentID: &agentID,
+                IssueNumber:      &issueNumber,
+                Identifier:       &identifier,
+                OriginKind:       "run_result",
+                CreatedAt:        now,
+                UpdatedAt:        now,
+        }
+        if err := s.db.Create(&subIssue).Error; err != nil {
+                log.Printf("[heartbeat] createRunResultSubIssue: failed to create sub-issue: %v", err)
+                return
+        }
+        s.hub.Publish(ws.LiveEvent{Type: "issue.created", CompanyID: parent.CompanyID, Payload: subIssue})
+        parentID := parent.ID
+        if parent.Identifier != nil {
+                parentID = *parent.Identifier
+        }
+        log.Printf("[heartbeat] created run result sub-issue %s for parent %s", identifier, parentID)
 }
 
 // TriggerRun manually starts a run for an agent (called from the checkout API)
@@ -630,7 +736,7 @@ func (s *HeartbeatService) TriggerRun(agentID, companyID string, issue *models.I
 
         go func() {
                 defer s.unlock(agentID)
-                s.runAgent(agent, issue, source)
+                s.dispatchRun(agent, issue, &run)
         }()
 
         return &run, nil

@@ -381,12 +381,11 @@ export function IssueDetail() {
     return options;
   }, [agents, orderedProjects]);
 
-  const childIssues = useMemo(() => {
-    if (!allIssues || !issue) return [];
-    return allIssues
-      .filter((i) => i.parentId === issue.id)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }, [allIssues, issue]);
+  const { data: childIssues = [] } = useQuery({
+    queryKey: queryKeys.issues.subIssues(issueId!),
+    queryFn: () => issuesApi.listSubIssues(issueId!),
+    enabled: !!issueId,
+  });
 
   const commentReassignOptions = useMemo(() => {
     const options: Array<{ id: string; label: string; searchText?: string }> = [];
@@ -523,6 +522,7 @@ export function IssueDetail() {
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.liveRuns(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.activeRun(issueId!) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.subIssues(issueId!) });
     if (selectedCompanyId) {
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.listMineByMe(selectedCompanyId) });

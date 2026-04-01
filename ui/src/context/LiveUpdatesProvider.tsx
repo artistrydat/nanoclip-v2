@@ -606,11 +606,27 @@ function handleLiveEvent(
   gate: ToastGate,
   currentActor: { userId: string | null; agentId: string | null },
 ) {
-  if (event.companyId !== expectedCompanyId) return;
+  if (event.companyId && event.companyId !== expectedCompanyId) return;
 
   const nameOf = (id: string) => resolveAgentName(queryClient, expectedCompanyId, id);
   const payload = event.payload ?? {};
   if (event.type === "heartbeat.run.log") {
+    return;
+  }
+
+  if (event.type === "issue.created") {
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(expectedCompanyId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.listMineByMe(expectedCompanyId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.listTouchedByMe(expectedCompanyId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.listUnreadTouchedByMe(expectedCompanyId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(expectedCompanyId) });
+    const parentId = typeof payload.parentId === "string" ? payload.parentId : null;
+    if (parentId) {
+      const parentRefs = resolveIssueQueryRefs(queryClient, expectedCompanyId, parentId, null);
+      for (const ref of parentRefs) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.subIssues(ref) });
+      }
+    }
     return;
   }
 

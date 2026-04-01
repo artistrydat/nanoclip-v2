@@ -20,6 +20,7 @@ func GlobalAgentRoutes(rg *gin.RouterGroup, db *gorm.DB) {
         rg.GET("/:agentId/runtime-state", getAgentRuntimeState(db))
         rg.POST("/:agentId/runtime-state/reset-session", resetAgentSession(db))
         rg.GET("/:agentId/skills", getAgentSkills(db))
+        rg.POST("/:agentId/skills/sync", syncAgentSkills(db))
         rg.GET("/:agentId/keys", getAgentKeys(db))
         rg.POST("/:agentId/keys", CreateAgentKey(db))
         rg.DELETE("/:agentId/keys/:keyId", RevokeAgentKey(db))
@@ -204,7 +205,41 @@ func resetAgentSession(db *gorm.DB) gin.HandlerFunc {
         }
 }
 
-// getAgentSkills returns the skills registered for an agent, derived from its adapter config.
+// editableAdapterTypes lists adapter types that support NanoClip-managed skill selection.
+var editableAdapterTypes = map[string]bool{
+        "ollama_local":      true,
+        "openrouter_local":  true,
+        "http":              true,
+}
+
+// buildAgentSkillSnapshot assembles the skill snapshot response for an agent.
+func buildAgentSkillSnapshot(agent *models.Agent) gin.H {
+        mode := "unsupported"
+        if editableAdapterTypes[agent.AdapterType] {
+                mode = "editable"
+        }
+
+        desiredSkills := []string{}
+        if raw, ok := agent.AdapterConfig["desiredSkills"]; ok {
+                if sl, ok := raw.([]interface{}); ok {
+                        for _, v := range sl {
+                                if s, ok := v.(string); ok {
+                                        desiredSkills = append(desiredSkills, s)
+                                }
+                        }
+                }
+        }
+
+        return gin.H{
+                "skills":        []gin.H{},
+                "entries":       []map[string]interface{}{},
+                "desiredSkills": desiredSkills,
+                "warnings":      []string{},
+                "mode":          mode,
+        }
+}
+
+// getAgentSkills returns the skills snapshot for an agent.
 func getAgentSkills(db *gorm.DB) gin.HandlerFunc {
         return func(c *gin.Context) {
                 agentID := c.Param("agentId")
@@ -216,23 +251,46 @@ func getAgentSkills(db *gorm.DB) gin.HandlerFunc {
                         return
                 }
 
-                // Skills are stored in agent's AdapterConfig["skills"] or returned empty
-                skills := []gin.H{}
-                if rawSkills, ok := agent.AdapterConfig["skills"]; ok {
-                        if skillList, ok := rawSkills.([]interface{}); ok {
-                                for _, s := range skillList {
-                                        if sm, ok := s.(map[string]interface{}); ok {
-                                                skills = append(skills, gin.H{
-                                                        "key":         sm["key"],
-                                                        "name":        sm["name"],
-                                                        "description": sm["description"],
-                                                })
-                                        }
-                                }
-                        }
+                c.JSON(http.StatusOK, buildAgentSkillSnapshot(agent))
+        }
+}
+
+// syncAgentSkills saves the desired skill keys for an agent and returns the updated snapshot.
+func syncAgentSkills(db *gorm.DB) gin.HandlerFunc {
+        return func(c *gin.Context) {
+                agentID := c.Param("agentId")
+                companyID := c.Query("companyId")
+
+                agent, status, err := resolveAgentByParam(db, agentID, companyID)
+                if err != nil {
+                        c.JSON(status, gin.H{"error": err.Error()})
+                        return
                 }
 
-                c.JSON(http.StatusOK, gin.H{"skills": skills, "entries": []map[string]interface{}{}, "desiredSkills": []string{}, "warnings": []string{}, "mode": "unsupported"})
+                var body struct {
+                        DesiredSkills []string `json:"desiredSkills"`
+                }
+                if err := c.ShouldBindJSON(&body); err != nil {
+                        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+                        return
+                }
+
+                cfg := agent.AdapterConfig
+                if cfg == nil {
+                        cfg = models.JSON{}
+                }
+                iface := make([]interface{}, len(body.DesiredSkills))
+                for i, s := range body.DesiredSkills {
+                        iface[i] = s
+                }
+                cfg["desiredSkills"] = iface
+                if err := db.Model(agent).Update("adapter_config", cfg).Error; err != nil {
+                        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save skills"})
+                        return
+                }
+                agent.AdapterConfig = cfg
+
+                c.JSON(http.StatusOK, buildAgentSkillSnapshot(agent))
         }
 }
 

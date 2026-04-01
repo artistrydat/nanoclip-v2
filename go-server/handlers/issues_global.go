@@ -252,7 +252,30 @@ func listIssueRunsGlobal(db *gorm.DB) gin.HandlerFunc {
                 }
                 var runs []models.HeartbeatRun
                 db.Where("issue_id = ?", issue.ID).Order("created_at desc").Find(&runs)
-                c.JSON(http.StatusOK, runs)
+                out := make([]gin.H, 0, len(runs))
+                for _, r := range runs {
+                        out = append(out, gin.H{
+                                "id":               r.ID,
+                                "runId":            r.ID,
+                                "companyId":        r.CompanyID,
+                                "agentId":          r.AgentID,
+                                "issueId":          r.IssueID,
+                                "invocationSource": r.InvocationSource,
+                                "triggerDetail":    r.TriggerDetail,
+                                "status":           r.Status,
+                                "startedAt":        r.StartedAt,
+                                "completedAt":      r.CompletedAt,
+                                "finishedAt":       r.CompletedAt,
+                                "exitCode":         r.ExitCode,
+                                "stdoutExcerpt":    r.StdoutExcerpt,
+                                "stderrExcerpt":    r.StderrExcerpt,
+                                "usageJson":        r.UsageJSON,
+                                "resultJson":       r.ResultJSON,
+                                "createdAt":        r.CreatedAt,
+                                "updatedAt":        r.UpdatedAt,
+                        })
+                }
+                c.JSON(http.StatusOK, out)
         }
 }
 
