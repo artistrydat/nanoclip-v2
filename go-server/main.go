@@ -1,11 +1,15 @@
 package main
 
 import (
+        "bytes"
         "fmt"
+        "io/fs"
         "log"
         "net/http"
         "os"
         "path/filepath"
+        "strings"
+        "time"
 
         "github.com/gin-gonic/gin"
         "github.com/joho/godotenv"
@@ -147,24 +151,47 @@ func main() {
         handlers.InstanceRoutes(api.Group("/instance"), database)
 
         // ── Static UI (built React app) ──────────────────────────────────────────
-        uiDist := findUIDistDir()
-        if uiDist != "" {
-                log.Printf("[server] serving UI from %s", uiDist)
-                router.StaticFS("/assets", http.Dir(filepath.Join(uiDist, "assets")))
-                router.StaticFile("/favicon.ico", filepath.Join(uiDist, "favicon.ico"))
-                router.StaticFile("/favicon.svg", filepath.Join(uiDist, "favicon.svg"))
-                router.StaticFile("/favicon-32x32.png", filepath.Join(uiDist, "favicon-32x32.png"))
-                router.StaticFile("/favicon-16x16.png", filepath.Join(uiDist, "favicon-16x16.png"))
-                router.StaticFile("/sw.js", filepath.Join(uiDist, "sw.js"))
+        var uiFS fs.FS
+        if eFS := embeddedUI(); eFS != nil {
+                log.Println("[server] serving UI from embedded binary")
+                uiFS = eFS
+        } else if dir := findUIDistDir(); dir != "" {
+                log.Printf("[server] serving UI from disk: %s", dir)
+                uiFS = os.DirFS(dir)
+        }
+
+        if uiFS != nil {
+                assetsFS, _ := fs.Sub(uiFS, "assets")
+                router.StaticFS("/assets", http.FS(assetsFS))
+                for _, name := range []string{
+                        "favicon.ico", "favicon.svg",
+                        "favicon-32x32.png", "favicon-16x16.png",
+                        "apple-touch-icon.png", "sw.js",
+                } {
+                        fname := name
+                        router.GET("/"+fname, func(c *gin.Context) {
+                                data, err := fs.ReadFile(uiFS, fname)
+                                if err != nil {
+                                        c.Status(http.StatusNotFound)
+                                        return
+                                }
+                                http.ServeContent(c.Writer, c.Request, fname, time.Time{}, bytes.NewReader(data))
+                        })
+                }
                 router.NoRoute(func(c *gin.Context) {
-                        if len(c.Request.URL.Path) > 4 && c.Request.URL.Path[:4] == "/api" {
+                        if strings.HasPrefix(c.Request.URL.Path, "/api") {
                                 c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+                                return
+                        }
+                        data, err := fs.ReadFile(uiFS, "index.html")
+                        if err != nil {
+                                c.Status(http.StatusInternalServerError)
                                 return
                         }
                         c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
                         c.Header("Pragma", "no-cache")
                         c.Header("Expires", "0")
-                        c.File(filepath.Join(uiDist, "index.html"))
+                        c.Data(http.StatusOK, "text/html; charset=utf-8", data)
                 })
         } else {
                 log.Println("[server] no UI dist found — running in API-only mode")
