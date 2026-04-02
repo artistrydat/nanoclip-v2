@@ -1493,9 +1493,16 @@ function ConfigurationTab({
   }, [onSavingChange, isConfigSaving]);
 
   const canCreateAgents = Boolean(agent.permissions?.canCreateAgents);
-  const canAssignTasks = Boolean(agent.access?.canAssignTasks);
-  const taskAssignSource = agent.access?.taskAssignSource ?? "none";
+  const canAssignTasks = Boolean(agent.permissions?.canAssignTasks);
   const taskAssignLocked = agent.role === "ceo" || canCreateAgents;
+  const taskAssignSource =
+    agent.role === "ceo"
+      ? "ceo_role"
+      : canCreateAgents
+        ? "agent_creator"
+        : canAssignTasks
+          ? "explicit_grant"
+          : "none";
   const taskAssignHint =
     taskAssignSource === "ceo_role"
       ? "Enabled automatically for CEO agents."
