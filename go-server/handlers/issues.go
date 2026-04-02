@@ -213,6 +213,25 @@ func updateIssue(db *gorm.DB, hub *ws.Hub) gin.HandlerFunc {
                         updates["priority"] = *req.Priority
                 }
                 if req.AssigneeAgentID != nil {
+                        // Org-hierarchy check: agents with canAssignTasks but not canCreateAgents
+                        // may only assign issues to agents within their subordinate subtree.
+                        actor := middleware.GetActor(c)
+                        if actor != nil && actor.Type == "agent" && actor.AgentID != "" {
+                                var actorAgent models.Agent
+                                if db.First(&actorAgent, "id = ? AND company_id = ?", actor.AgentID, c.Param("companyId")).Error == nil {
+                                        canCreate, _ := actorAgent.Permissions["canCreateAgents"].(bool)
+                                        canAssign, _ := actorAgent.Permissions["canAssignTasks"].(bool)
+                                        if canAssign && !canCreate {
+                                                // CEO/creator role has no restriction; subordinate-only agents do.
+                                                if actorAgent.Role != "ceo" && *req.AssigneeAgentID != actor.AgentID {
+                                                        if !isAgentSubordinate(db, c.Param("companyId"), actor.AgentID, *req.AssigneeAgentID) {
+                                                                c.JSON(http.StatusForbidden, gin.H{"error": "you can only assign tasks to agents that report to you"})
+                                                                return
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
                         updates["assignee_agent_id"] = req.AssigneeAgentID
                 }
                 if req.AssigneeUserID != nil {

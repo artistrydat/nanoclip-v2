@@ -451,10 +451,30 @@ func updateAgentPermissions(db *gorm.DB) gin.HandlerFunc {
                         perms["canAssignTasks"] = *req.CanAssignTasks
                 }
 
-                db.Model(&models.Agent{}).Where("id = ?", agent.ID).Updates(map[string]interface{}{
+                // Auto-load MariaDB and NanoClip Integration skills when elevated permissions are granted.
+                canCreate, _ := perms["canCreateAgents"].(bool)
+                canAssign, _ := perms["canAssignTasks"].(bool)
+                agentUpdates := map[string]interface{}{
                         "permissions": perms,
                         "updated_at":  time.Now(),
-                })
+                }
+                if canCreate || canAssign {
+                        skillKeys := upsertPermissionSkills(db, agent.CompanyID)
+                        cfg := models.JSON{}
+                        for k, v := range agent.AdapterConfig {
+                                cfg[k] = v
+                        }
+                        existing := []interface{}{}
+                        if raw, ok := cfg["desiredSkills"]; ok {
+                                if sl, ok := raw.([]interface{}); ok {
+                                        existing = sl
+                                }
+                        }
+                        cfg["desiredSkills"] = mergeDesiredSkills(existing, skillKeys)
+                        agentUpdates["adapter_config"] = cfg
+                }
+
+                db.Model(&models.Agent{}).Where("id = ?", agent.ID).Updates(agentUpdates)
                 db.First(agent, "id = ?", agent.ID)
 
                 actor := mw.GetActor(c)

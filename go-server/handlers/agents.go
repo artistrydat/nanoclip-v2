@@ -104,16 +104,17 @@ func createAgent(db *gorm.DB) gin.HandlerFunc {
 }
 
 type updateAgentRequest struct {
-        Name          *string      `json:"name"`
-        Role          *string      `json:"role"`
-        Title         *string      `json:"title"`
-        Icon          *string      `json:"icon"`
-        Status        *string      `json:"status"`
-        ReportsTo     *string      `json:"reportsTo"`
-        Capabilities  *string      `json:"capabilities"`
-        AdapterType   *string      `json:"adapterType"`
-        AdapterConfig models.JSON  `json:"adapterConfig"`
-        BudgetMonthlyCents *int    `json:"budgetMonthlyCents"`
+        Name               *string     `json:"name"`
+        Role               *string     `json:"role"`
+        Title              *string     `json:"title"`
+        Icon               *string     `json:"icon"`
+        Status             *string     `json:"status"`
+        ReportsTo          *string     `json:"reportsTo"`
+        Capabilities       *string     `json:"capabilities"`
+        AdapterType        *string     `json:"adapterType"`
+        AdapterConfig      models.JSON `json:"adapterConfig"`
+        RuntimeConfig      models.JSON `json:"runtimeConfig"`
+        BudgetMonthlyCents *int        `json:"budgetMonthlyCents"`
 }
 
 func updateAgent(db *gorm.DB) gin.HandlerFunc {
@@ -162,6 +163,17 @@ func updateAgent(db *gorm.DB) gin.HandlerFunc {
                                 merged[k] = v
                         }
                         updates["adapter_config"] = merged
+                }
+                if req.RuntimeConfig != nil {
+                        // Merge into existing runtime config
+                        mergedRT := models.JSON{}
+                        for k, v := range agent.RuntimeConfig {
+                                mergedRT[k] = v
+                        }
+                        for k, v := range req.RuntimeConfig {
+                                mergedRT[k] = v
+                        }
+                        updates["runtime_config"] = mergedRT
                 }
                 if req.BudgetMonthlyCents != nil {
                         updates["budget_monthly_cents"] = *req.BudgetMonthlyCents
