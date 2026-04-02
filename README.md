@@ -6,7 +6,7 @@
 
 **AI agent orchestration that fits in your pocket — runs on Android, offline, free.**
 
-[![Version](https://img.shields.io/badge/version-v0.4.0-6366f1?style=flat-square)](https://github.com/artistrydat/nanoclip-v2/releases)
+[![Version](https://img.shields.io/badge/version-v0.5.0-6366f1?style=flat-square)](https://github.com/artistrydat/nanoclip-v2/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Linux%20%7C%20macOS-f59e0b?style=flat-square)](#)
 [![Backend](https://img.shields.io/badge/backend-Go%20%2B%20Gin%20%2B%20GORM-00ADD8?style=flat-square)](#)
@@ -50,6 +50,17 @@ NanoClip is an open-source AI agent platform that runs as a **single binary on y
 ### Telegram Plugin
 
 Get push notifications, inline approve/reject buttons, and two-way issue comments — all inside Telegram. Full setup guide: **[docs/telegram-plugin.md](docs/telegram-plugin.md)**
+
+**v0.5.0 — full feature set:**
+- **Escalation system** — agents publish `escalation.created`; human gets a timed decision card (Use suggested / Override / Dismiss) with auto-fallback
+- **Watch registry** — `/watch <event>` and `/unwatch <event>` per chat or topic thread
+- **Topics routing** — `/connect_topic <companyId> <projectId>` sends project events to a Telegram topic thread
+- **ACP commands** — `/acp spawn|status|cancel <agentName>` for direct agent control
+- **Routines** — `/routines` lists active routines; `/routines run <name>` triggers one
+- **Media pipeline** — send a photo/doc to the bot with an issue identifier as caption → auto-attached to that issue
+- **MarkdownV2** — all messages use proper Markdown formatting with bold, inline code, links
+- **Typing indicator** — bot shows "typing…" while processing commands
+- **Agent skill docs** — see [`docs/skills/telegram.md`](docs/skills/telegram.md)
 
 ---
 
