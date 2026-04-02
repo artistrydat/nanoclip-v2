@@ -296,15 +296,17 @@ NODE_OPTIONS="--max-old-space-size=384" pnpm --filter @nanoclip/ui build:termux
 ### Step 17 — Build the NanoClip server
 
 ```
-cd go-server && go build -o nanoclip-build . && mv nanoclip-build nanoclip && cd ..
+cd go-server && GOTOOLCHAIN=local go build -o nanoclip-build . && mv nanoclip-build nanoclip && cd ..
 ```
 
 Nothing will appear for several minutes — that is normal. When `$` appears again, the binary is ready.
 
+> `GOTOOLCHAIN=local` tells Go to use whatever version is already installed on your phone instead of trying to download a specific version from the internet (which often fails on ARM).
+
 If it fails with a memory error:
 
 ```
-cd go-server && GOFLAGS="-p=1" go build -o nanoclip-build . && mv nanoclip-build nanoclip && cd ..
+cd go-server && GOTOOLCHAIN=local GOFLAGS="-p=1" go build -o nanoclip-build . && mv nanoclip-build nanoclip && cd ..
 ```
 
 ---
@@ -423,6 +425,19 @@ Wait 10 seconds, then restart NanoClip.
 </details>
 
 <details>
+<summary><strong>"go.mod requires go >= 1.25.x (running go 1.24.x)" during Step 17</strong></summary>
+
+Your installed Go version is slightly behind what the project specifies. Fix it on your phone with:
+
+```
+sed -i 's/^go 1.25.*/go 1.24/' go-server/go.mod
+sed -i '/^toolchain/d' go-server/go.mod
+```
+
+Then run the build command again. Alternatively, always use `GOTOOLCHAIN=local` (already included in Step 17) which tells Go to use whatever version is installed and skip the version check.
+</details>
+
+<details>
 <summary><strong>"signal: killed" or "out of memory" during Step 17 (Go build)</strong></summary>
 
 ```
@@ -463,7 +478,7 @@ Get Telegram notifications, approve/reject buttons, and issue replies — direct
 ```bash
 cd ~/nanoclip-v2
 git pull
-cd go-server && go build -o nanoclip-build . && mv nanoclip-build nanoclip && cd ..
+cd go-server && GOTOOLCHAIN=local go build -o nanoclip-build . && mv nanoclip-build nanoclip && cd ..
 ```
 
 The UI is pre-built and updated automatically with `git pull` — no rebuild needed.
