@@ -23,6 +23,30 @@ const telegramPackageName = "paperclip-plugin-telegram"
 func TelegramPluginKey() string        { return telegramPluginKey }
 func TelegramPluginPackageName() string { return telegramPackageName }
 
+func TelegramManifest() map[string]interface{} {
+        return map[string]interface{}{
+                "name":        "Telegram Bot",
+                "packageName": telegramPackageName,
+                "pluginKey":   telegramPluginKey,
+                "version":     "0.5.0",
+                "description": "Send notifications, approvals, escalations, and accept commands via Telegram.",
+                "categories":  []string{"connector", "automation"},
+                "configSchema": map[string]interface{}{
+                        "botToken":           map[string]interface{}{"type": "string", "label": "Bot Token", "secret": true},
+                        "defaultChatId":      map[string]interface{}{"type": "string", "label": "Default Chat ID"},
+                        "approvalsChatId":    map[string]interface{}{"type": "string", "label": "Approvals Chat ID"},
+                        "errorsChatId":       map[string]interface{}{"type": "string", "label": "Errors Chat ID"},
+                        "escalationChatId":   map[string]interface{}{"type": "string", "label": "Escalation Chat ID"},
+                        "paperclipPublicUrl": map[string]interface{}{"type": "string", "label": "Public URL"},
+                        "enableCommands":     map[string]interface{}{"type": "boolean", "label": "Enable Commands"},
+                        "enableInbound":      map[string]interface{}{"type": "boolean", "label": "Enable Inbound Messages"},
+                        "enableEscalation":   map[string]interface{}{"type": "boolean", "label": "Enable Escalation"},
+                        "enableMedia":        map[string]interface{}{"type": "boolean", "label": "Enable Media Handling"},
+                        "topicsEnabled":      map[string]interface{}{"type": "boolean", "label": "Enable Topics Routing"},
+                },
+        }
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 type TelegramConfig struct {
