@@ -102,6 +102,8 @@ func main() {
         handlers.InviteRoutes(company.Group("/invites"), database)
         // Join requests (empty in local_trusted mode)
         handlers.JoinRequestRoutes(company.Group("/join-requests"), database)
+        // Database manager
+        handlers.DatabaseRoutes(company.Group("/database"), database)
         // Budget policies overview
         handlers.BudgetRoutes(company.Group("/budgets"), database)
         // Agent configurations (access control)
