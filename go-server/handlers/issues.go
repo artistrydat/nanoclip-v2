@@ -43,6 +43,9 @@ func listIssues(db *gorm.DB) gin.HandlerFunc {
                 if assignee := c.Query("assigneeAgentId"); assignee != "" {
                         q = q.Where("assignee_agent_id = ?", assignee)
                 }
+                if participant := c.Query("participantAgentId"); participant != "" {
+                        q = q.Where("assignee_agent_id = ? OR created_by_agent_id = ?", participant, participant)
+                }
                 // touchedByUserId=me  → issues that have any non-archived InboxItem for this company
                 if touched := c.Query("touchedByUserId"); touched != "" {
                         q = q.Where("id IN (SELECT issue_id FROM inbox_items WHERE company_id = ? AND issue_id IS NOT NULL AND status != 'archived')", companyID)
